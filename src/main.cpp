@@ -1,5 +1,22 @@
 #include <iostream>
 #include <string>
+#include<stdlib.h>
+#include <utility>
+
+
+std::pair<std::string,std::string> parse_command(const std::string& input) {
+    std::string command;
+    std::string remaining_command;
+    for (int i = 0; i < input.size(); ++i) {
+        char ch = input[i];
+        if (ch == ' ') {
+            remaining_command = input.substr(i + 1);
+            break;
+        }
+        command += ch;
+    }
+    return std::make_pair(command, remaining_command);
+}
 
 int main() {
   // Flush after every std::cout / std:cerr
@@ -13,10 +30,17 @@ int main() {
     std::string command;
     std::getline(std::cin,command);
     
-    if(command=="exit"){
+    std::pair<std::string,std::string> parsed_command = parse_command(command);
+    
+    if(parsed_command.first=="exit"){
           break;
     }
-
-    std::cout <<command<< ": command not found"<<'\n';
+    else if(parsed_command.first == "echo"){
+         std::cout << parsed_command.second << '\n';
+    }
+         
+    
+    else 
+        std::cout <<command<< ": command not found"<<'\n';
   }
 }
