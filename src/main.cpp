@@ -1,7 +1,6 @@
 #include <iostream>
 #include <string>
-#include<stdlib.h>
-#include <utility>
+
 
 
 std::pair<std::string,std::string> parse_command(const std::string& input) {
@@ -38,7 +37,15 @@ int main() {
     else if(parsed_command.first == "echo"){
          std::cout << parsed_command.second << '\n';
     }
-         
+    
+    else if(parsed_command.first == "type"){
+         if(parsed_command.second=="echo" || parsed_command.second=="type" || parsed_command.second=="exit"){
+             std::cout << parsed_command.second << " is a shell builtin"<<'\n';
+         }
+         else{
+             std::cout << parsed_command.second << ": not found"<<'\n';
+         }
+    }
     
     else 
         std::cout <<command<< ": command not found"<<'\n';
