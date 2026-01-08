@@ -1,50 +1,41 @@
 #include <iostream>
 #include <string>
-#include<dirent.h>
+#include <dirent.h>
 #include <cstring>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 
-std::pair<std::string,std::string> parse_command(const std::string& input) {
-    std::string command;
-    std::string remaining_command;
-    for (int i = 0; i < input.size(); ++i) {
-        char ch = input[i];
-        if (ch == ' ') {
-            remaining_command = input.substr(i + 1);
-            break;
-        }
-        command += ch;
-    }
-    return std::make_pair(command, remaining_command);
+
+char fullpath[512];
+
+std::pair<std::string, std::string> parse_command(const std::string &input) {
+    std::string cmd, rest;
+    int i = 0;
+
+    while (i < input.size() && input[i] != ' ')
+        cmd += input[i++];
+
+    if (i < input.size())
+        rest = input.substr(i + 1);
+
+    return {cmd, rest};
 }
 
-bool check_file_present(const char *path, std::string executable)
-{
+bool check_file_present(const char *path, const std::string &exe) {
     DIR *dir = opendir(path);
-    if (!dir)
-        return false;
+    if (!dir) return false;
 
     struct dirent *entry;
     struct stat sb;
-    char fullpath[512];
 
-    while ((entry = readdir(dir)) != nullptr)
-    {
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        if (strcmp(entry->d_name, executable.c_str()) == 0)
-        {
-            snprintf(fullpath, sizeof(fullpath),
-                     "%s/%s", path, entry->d_name);
-
+    while ((entry = readdir(dir)) != nullptr) {
+        if (strcmp(entry->d_name, exe.c_str()) == 0) {
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
             if (stat(fullpath, &sb) == 0 &&
                 S_ISREG(sb.st_mode) &&
-                access(fullpath, X_OK) == 0)
-            {
+                access(fullpath, X_OK) == 0) {
                 closedir(dir);
                 return true;
             }
@@ -55,67 +46,121 @@ bool check_file_present(const char *path, std::string executable)
     return false;
 }
 
+bool find_in_path(const std::string &exe, char *out) {
+    const char *path = getenv("PATH");
+    char p[256];
+    int j = 0;
+
+    for (int i = 0;; i++) {
+        if (path[i] == ':' || path[i] == '\0') {
+            p[j] = '\0';
+            j = 0;
+
+            if (check_file_present(p, exe)) {
+                std::strcpy(out, fullpath);
+                return true;
+            }
+
+            if (path[i] == '\0')
+                break;
+        } else {
+            p[j++] = path[i];
+        }
+    }
+    return false;
+}
+
+void build_argv(const std::string &cmd, const std::string &args,char *argv[]) {
+    int idx = 0;
+
+    argv[idx] = new char[cmd.size() + 1];
+    std::strcpy(argv[idx++], cmd.c_str());
+
+    char buf[256];
+    int j = 0;
+
+    for (int i = 0; i <= args.size(); i++) {
+        if (i == args.size() || args[i] == ' ') {
+            if (j > 0) {
+                buf[j] = '\0';
+                argv[idx] = new char[j + 1];
+                std::strcpy(argv[idx++], buf);
+                j = 0;
+            }
+        } else {
+            buf[j++] = args[i];
+        }
+    }
+
+    argv[idx] = nullptr;
+}
+
+bool execute_external(const std::string &exe,
+                      const std::string &args) {
+    char pathbuf[512];
+
+    if (!find_in_path(exe, pathbuf))
+        return false;
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        char *argv[64];
+        build_argv(exe, args, argv);
+        execve(pathbuf, argv, NULL);
+        perror("execve");
+        _exit(1);
+    } else {
+        waitpid(pid, nullptr, 0);
+    }
+
+    return true;
+}
+
 
 int main() {
-  // Flush after every std::cout / std:cerr
-  std::cout << std::unitbuf;
-  std::cerr << std::unitbuf;
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
 
- 
-  while(1){
-    std::cout << "$ ";
-    
-    std::string command;
-    std::getline(std::cin,command);
-    
-    std::pair<std::string,std::string> parsed_command = parse_command(command);
-    
-    if(parsed_command.first=="exit"){
-          break;
+    while (true) {
+        std::cout << "$ ";
+
+        std::string input;
+        if (!std::getline(std::cin, input))
+            break;
+
+        auto parsed = parse_command(input);
+
+        if (parsed.first == "exit")
+            break;
+
+        if (parsed.first == "echo") {
+            std::cout << parsed.second << '\n';
+            continue;
+        }
+
+        if (parsed.first == "type") {
+            if (parsed.second == "echo" ||
+                parsed.second == "exit" ||
+                parsed.second == "type") {
+                std::cout << parsed.second << " is a shell builtin\n";
+                continue;
+            }
+
+            char result[512];
+            if (find_in_path(parsed.second, result)) {
+                std::cout << parsed.second << " is " << result << '\n';
+            } else {
+                std::cout << parsed.second << ": not found\n";
+            }
+            continue;
+        }
+
+        if (!execute_external(parsed.first, parsed.second)) {
+            std::cout << parsed.first << ": command not found\n";
+        }
     }
-    else if(parsed_command.first == "echo"){
-         std::cout << parsed_command.second << '\n';
-    }
-    
-    else if(parsed_command.first == "type"){
-         if(parsed_command.second=="echo" || parsed_command.second=="type" || parsed_command.second=="exit"){
-             std::cout << parsed_command.second << " is a shell builtin"<<'\n';
-             continue;
-         }
-         
-         const char *path = getenv("PATH");
-         char p[256];
-         p[0]='\0';
-         bool is_present=false;
-         int j=0;
-         //std::cout<<path<<'\n';
-         for(int i=0;path[i]!='\0';i++)
-         {
-         	char ch=path[i];
-         	if(ch==':')
-         	{
-         		p[j]='\0';
-         		//std::cout<<p<<' ';
-         		if(check_file_present(p,parsed_command.second))
-         		{
-         			is_present=true;
-         			std::cout<<parsed_command.second << " is "<<p<<"/"<<parsed_command.second<<'\n';
-         			break;
-         		}
-         		p[0]='\0';
-         		j=0;
-         	}
-         	else 
-         		p[j++]=ch;
-         }
-         
-          
-         if(!is_present){
-             std::cout << parsed_command.second << ": not found"<<'\n';
-         }
-    }
-    
-    else 
-        std::cout <<command<< ": command not found"<<'\n';
-  }
+
+    return 0;
 }
+
