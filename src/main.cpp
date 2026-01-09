@@ -138,11 +138,17 @@ int main() {
             std::cout << parsed.second << '\n';
             continue;
         }
-
+	if(parsed.first =="pwd"){
+		char result[512];
+		getcwd(result,512);
+		std::cout<<result<<'\n';
+		continue;
+	}	
         if (parsed.first == "type") {
             if (parsed.second == "echo" ||
                 parsed.second == "exit" ||
-                parsed.second == "type") {
+                parsed.second == "type" ||
+                parsed.second ==  "pwd") {
                 std::cout << parsed.second << " is a shell builtin\n";
                 continue;
             }
