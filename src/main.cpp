@@ -144,11 +144,21 @@ int main() {
 		std::cout<<result<<'\n';
 		continue;
 	}	
+	if(parsed.first =="cd"){
+		int res=chdir(parsed.second.c_str());
+		if(res==-1)
+		{
+			std::cout<<"cd: "<<parsed.second<<": No such file or directory"<<'\n';
+		}
+		continue;
+	
+	}
         if (parsed.first == "type") {
             if (parsed.second == "echo" ||
                 parsed.second == "exit" ||
                 parsed.second == "type" ||
-                parsed.second ==  "pwd") {
+                parsed.second == "pwd" ||
+                parsed.second == "cd") {
                 std::cout << parsed.second << " is a shell builtin\n";
                 continue;
             }
