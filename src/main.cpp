@@ -95,8 +95,7 @@ void build_argv(const std::string &cmd, const std::string &args,char *argv[]) {
     argv[idx] = nullptr;
 }
 
-bool execute_external(const std::string &exe,
-                      const std::string &args) {
+bool execute_external(const std::string &exe, const std::string &args) {
     char pathbuf[512];
 
     if (!find_in_path(exe, pathbuf))
@@ -145,6 +144,12 @@ int main() {
 		continue;
 	}	
 	if(parsed.first =="cd"){
+		if(parsed.second[0]=='~')
+		{
+			const char *path = getenv("HOME");
+			chdir(path);
+			continue;
+		}	
 		int res=chdir(parsed.second.c_str());
 		if(res==-1)
 		{
