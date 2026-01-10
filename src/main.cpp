@@ -178,6 +178,11 @@ int main() {
              		last_space=true;
              		continue;
              	}
+             	if(parsed.second[i]=='\\'){
+             		std::cout<<parsed.second[i+1];
+             		i++;
+             		continue;
+             	}
              	last_space=false;
              	std::cout<<parsed.second[i];
              }		
