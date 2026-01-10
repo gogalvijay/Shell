@@ -11,18 +11,79 @@
 char fullpath[512];
 
 std::pair<std::string, std::string> parse_command(const std::string &input) {
-    std::string cmd, rest;
-    int i = 0;
+    std::string cmd;
+    std::string rest;
+    size_t i = 0;
 
-    while (i < input.size() && input[i] != ' ')
-        cmd += input[i++];
+  
+    while (i < input.size() && input[i] == ' ') i++;
 
-    if (i < input.size())
-        rest = input.substr(i + 1);
+   
+    bool single_quotes = false;
+    bool double_quotes = false;
+
+    while (i < input.size()) {
+        char c = input[i];
+
+        if (c == ' ' && !single_quotes && !double_quotes) {
+            break; 
+        }
+
+        if (c == '\\') {
+            if (single_quotes) {
+              
+                cmd += c;
+                i++;
+            } else if (double_quotes) {
+              
+                if (i + 1 < input.size()) {
+                    char next = input[i + 1];
+                    if (next == '"' || next == '\\' || next == '$' || next == '\n') {
+                        cmd += next;
+                        i += 2;
+                    } else {
+                        cmd += c;
+                        i++;
+                    }
+                } else {
+                    cmd += c; i++;
+                }
+            } else {
+               
+                if (i + 1 < input.size()) {
+                    cmd += input[i + 1];
+                    i += 2;
+                } else {
+                    cmd += c; i++;
+                }
+            }
+            continue;
+        }
+
+        if (c == '\'' && !double_quotes) {
+            single_quotes = !single_quotes;
+            i++;
+            continue;
+        }
+
+        if (c == '"' && !single_quotes) {
+            double_quotes = !double_quotes;
+            i++;
+            continue;
+        }
+
+        cmd += c;
+        i++;
+    }
+
+    if (i < input.size() && input[i] == ' ') i++;
+
+    if (i < input.size()) {
+        rest = input.substr(i);
+    }
 
     return {cmd, rest};
 }
-
 bool check_file_present(const char *path, const std::string &exe) {
     DIR *dir = opendir(path);
     if (!dir) return false;
@@ -70,10 +131,7 @@ bool find_in_path(const std::string &exe, char *out) {
     return false;
 }
 
-#include <iostream>
-#include <vector>
-#include <cstring>
-#include <string>
+
 
 void build_argv(const std::string &cmd, const std::string &args, char *argv[]) {
     int idx = 0;
