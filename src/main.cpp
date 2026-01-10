@@ -70,31 +70,39 @@ bool find_in_path(const std::string &exe, char *out) {
     return false;
 }
 
-void build_argv(const std::string &cmd, const std::string &args, char *argv[])
-{
+void build_argv(const std::string &cmd, const std::string &args, char *argv[]){
     int idx = 0;
 
-    
     argv[idx] = new char[cmd.size() + 1];
     std::strcpy(argv[idx++], cmd.c_str());
 
     std::string token;
-    bool in_quotes = false;
+    bool single_quotes = false;
+    bool double_quotes = false;
 
     for (size_t i = 0; i <= args.size(); i++) {
-        if (i == args.size() || (!in_quotes && args[i] == ' ')) {
+
+        if (i == args.size() || (!single_quotes && !double_quotes && args[i] == ' ')) {
+
             if (!token.empty()) {
                 argv[idx] = new char[token.size() + 1];
                 std::strcpy(argv[idx++], token.c_str());
                 token.clear();
             }
+            continue;
         }
-        else if (args[i] == '\'') {
-            in_quotes = !in_quotes;   
+
+        if (args[i] == '"' && !single_quotes) {
+            double_quotes = !double_quotes;
+            continue;
         }
-        else {
-            token += args[i];
+
+        if (args[i] == '\'' && !double_quotes) {
+            single_quotes = !single_quotes;
+            continue;
         }
+
+        token += args[i];
     }
 
     argv[idx] = nullptr;
@@ -147,6 +155,16 @@ int main() {
              		last_space=false;
              		int j=i+1;
              		while(parsed.second[j]!='\''){
+             			std::cout<<parsed.second[j];
+             			j++;
+             		}
+             		i=j;
+             		continue;
+             	}
+             	if(parsed.second[i]=='\"'){
+             		last_space=false;
+             		int j=i+1;
+             		while(parsed.second[j]!='\"'){
              			std::cout<<parsed.second[j];
              			j++;
              		}
