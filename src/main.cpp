@@ -70,9 +70,13 @@ bool find_in_path(const std::string &exe, char *out) {
     return false;
 }
 
-void build_argv(const std::string &cmd, const std::string &args, char *argv[]){
-    int idx = 0;
+#include <iostream>
+#include <vector>
+#include <cstring>
+#include <string>
 
+void build_argv(const std::string &cmd, const std::string &args, char *argv[]) {
+    int idx = 0;
     argv[idx] = new char[cmd.size() + 1];
     std::strcpy(argv[idx++], cmd.c_str());
 
@@ -80,10 +84,48 @@ void build_argv(const std::string &cmd, const std::string &args, char *argv[]){
     bool single_quotes = false;
     bool double_quotes = false;
 
-    for (size_t i = 0; i <= args.size(); i++) {
+    for (size_t i = 0; i < args.size(); i++) {
+        char c = args[i];
 
-        if (i == args.size() || (!single_quotes && !double_quotes && args[i] == ' ')) {
+        if (c == '\\') {
+            if (single_quotes) {
+           
+                token += c;
+            } else if (double_quotes) {
+              
+                if (i + 1 < args.size()) {
+                    char next = args[i + 1];
+                    if (next == '"' || next == '\\' || next == '$' || next == '\n') {
+                        token += next; 
+                        i++;           
+                    } else {
+                        token += c;   
+                       
+                    }
+                } else {
+                    token += c; 
+                }
+            } else {
+               
+                if (i + 1 < args.size()) {
+                    token += args[i + 1];
+                    i++;
+                }
+            }
+            continue;
+        }
 
+        if (c == '"' && !single_quotes) {
+            double_quotes = !double_quotes;
+            continue;
+        }
+
+        if (c == '\'' && !double_quotes) {
+            single_quotes = !single_quotes;
+            continue;
+        }
+
+        if (c == ' ' && !single_quotes && !double_quotes) {
             if (!token.empty()) {
                 argv[idx] = new char[token.size() + 1];
                 std::strcpy(argv[idx++], token.c_str());
@@ -92,17 +134,13 @@ void build_argv(const std::string &cmd, const std::string &args, char *argv[]){
             continue;
         }
 
-        if (args[i] == '"' && !single_quotes) {
-            double_quotes = !double_quotes;
-            continue;
-        }
+        token += c;
+    }
 
-        if (args[i] == '\'' && !double_quotes) {
-            single_quotes = !single_quotes;
-            continue;
-        }
-
-        token += args[i];
+    
+    if (!token.empty()) {
+        argv[idx] = new char[token.size() + 1];
+        std::strcpy(argv[idx++], token.c_str());
     }
 
     argv[idx] = nullptr;
@@ -165,6 +203,8 @@ int main() {
              		last_space=false;
              		int j=i+1;
              		while(parsed.second[j]!='\"'){
+             			if(parsed.second[j]=='\\')
+             				j++;
              			std::cout<<parsed.second[j];
              			j++;
              		}
@@ -238,4 +278,8 @@ int main() {
 
     return 0;
 }
+
+
+
+
 
