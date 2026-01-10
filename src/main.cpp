@@ -70,30 +70,36 @@ bool find_in_path(const std::string &exe, char *out) {
     return false;
 }
 
-void build_argv(const std::string &cmd, const std::string &args,char *argv[]) {
+void build_argv(const std::string &cmd, const std::string &args, char *argv[])
+{
     int idx = 0;
 
+    
     argv[idx] = new char[cmd.size() + 1];
     std::strcpy(argv[idx++], cmd.c_str());
 
-    char buf[256];
-    int j = 0;
+    std::string token;
+    bool in_quotes = false;
 
-    for (int i = 0; i <= args.size(); i++) {
-        if (i == args.size() || args[i] == ' ') {
-            if (j > 0) {
-                buf[j] = '\0';
-                argv[idx] = new char[j + 1];
-                std::strcpy(argv[idx++], buf);
-                j = 0;
+    for (size_t i = 0; i <= args.size(); i++) {
+        if (i == args.size() || (!in_quotes && args[i] == ' ')) {
+            if (!token.empty()) {
+                argv[idx] = new char[token.size() + 1];
+                std::strcpy(argv[idx++], token.c_str());
+                token.clear();
             }
-        } else {
-            buf[j++] = args[i];
+        }
+        else if (args[i] == '\'') {
+            in_quotes = !in_quotes;   
+        }
+        else {
+            token += args[i];
         }
     }
 
     argv[idx] = nullptr;
 }
+
 
 bool execute_external(const std::string &exe, const std::string &args) {
     char pathbuf[512];
@@ -132,11 +138,36 @@ int main() {
 
         if (parsed.first == "exit")
             break;
+           
 
         if (parsed.first == "echo") {
-            std::cout << parsed.second << '\n';
+             bool last_space=false;
+             for(int i = 0; i < parsed.second.size(); i++){
+             	if(parsed.second[i]=='\''){
+             		last_space=false;
+             		int j=i+1;
+             		while(parsed.second[j]!='\''){
+             			std::cout<<parsed.second[j];
+             			j++;
+             		}
+             		i=j;
+             		continue;
+             	}
+             	if(parsed.second[i]==' '){
+             		if(last_space)
+             			continue;
+             		std::cout<<parsed.second[i];
+             		last_space=true;
+             		continue;
+             	}
+             	last_space=false;
+             	std::cout<<parsed.second[i];
+             }		
+             		
+            std::cout<< '\n';
             continue;
         }
+        
 	if(parsed.first =="pwd"){
 		char result[512];
 		getcwd(result,512);
@@ -163,7 +194,7 @@ int main() {
                 parsed.second == "exit" ||
                 parsed.second == "type" ||
                 parsed.second == "pwd" ||
-                parsed.second == "cd") {
+                parsed.second == "cd"  ) {
                 std::cout << parsed.second << " is a shell builtin\n";
                 continue;
             }
