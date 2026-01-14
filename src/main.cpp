@@ -12,6 +12,8 @@ char fullpath[512];
 struct Redirect {
     bool out_enabled = false;
     bool err_enabled = false;
+    bool out_append = false;
+    bool err_append = false;
     std::string out_file;
     std::string err_file;
 };
@@ -20,7 +22,14 @@ Redirect parse_redirect(std::string &args) {
     Redirect r;
     size_t pos;
 
-    if ((pos = args.find("2>")) != std::string::npos) {
+    if ((pos = args.find("2>>")) != std::string::npos) {
+        r.err_enabled = true;
+        r.err_append = true;
+        size_t start = pos + 3;
+        while (start < args.size() && args[start] == ' ') start++;
+        r.err_file = args.substr(start);
+        args = args.substr(0, pos);
+    } else if ((pos = args.find("2>")) != std::string::npos) {
         r.err_enabled = true;
         size_t start = pos + 2;
         while (start < args.size() && args[start] == ' ') start++;
@@ -28,8 +37,17 @@ Redirect parse_redirect(std::string &args) {
         args = args.substr(0, pos);
     }
 
-    if ((pos = args.find("1>")) != std::string::npos ||
-        (pos = args.find(">")) != std::string::npos) {
+    if ((pos = args.find("1>>")) != std::string::npos ||
+        (pos = args.find(">>")) != std::string::npos) {
+        r.out_enabled = true;
+        r.out_append = true;
+        size_t skip = (args[pos] == '1') ? 3 : 2;
+        size_t start = pos + skip;
+        while (start < args.size() && args[start] == ' ') start++;
+        r.out_file = args.substr(start);
+        args = args.substr(0, pos);
+    } else if ((pos = args.find("1>")) != std::string::npos ||
+               (pos = args.find(">")) != std::string::npos) {
         r.out_enabled = true;
         size_t skip = (args[pos] == '1') ? 2 : 1;
         size_t start = pos + skip;
@@ -116,9 +134,8 @@ void build_argv(const std::string &cmd, const std::string &args, char *argv[]) {
         char c = args[i];
 
         if (c == '\\') {
-            if (single) {
-                token += c;
-            } else if (dbl) {
+            if (single) token += c;
+            else if (dbl) {
                 if (i + 1 < args.size()) {
                     char n = args[i + 1];
                     if (n == '"' || n == '\\' || n == '$' || n == '\n') {
@@ -159,12 +176,14 @@ bool execute_external(const std::string &exe, std::string args) {
 
     if (pid == 0) {
         if (r.out_enabled) {
-            int fd = open(r.out_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            int flags = O_WRONLY | O_CREAT | (r.out_append ? O_APPEND : O_TRUNC);
+            int fd = open(r.out_file.c_str(), flags, 0644);
             dup2(fd, STDOUT_FILENO);
             close(fd);
         }
         if (r.err_enabled) {
-            int fd = open(r.err_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            int flags = O_WRONLY | O_CREAT | (r.err_append ? O_APPEND : O_TRUNC);
+            int fd = open(r.err_file.c_str(), flags, 0644);
             dup2(fd, STDERR_FILENO);
             close(fd);
         }
@@ -189,7 +208,6 @@ int main() {
         if (!std::getline(std::cin, input)) break;
 
         auto parsed = parse_command(input);
-
         if (parsed.first == "exit") break;
 
         if (parsed.first == "echo") {
@@ -199,12 +217,14 @@ int main() {
 
             if (r.out_enabled) {
                 so = dup(STDOUT_FILENO);
-                fo = open(r.out_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                int flags = O_WRONLY | O_CREAT | (r.out_append ? O_APPEND : O_TRUNC);
+                fo = open(r.out_file.c_str(), flags, 0644);
                 dup2(fo, STDOUT_FILENO);
             }
             if (r.err_enabled) {
                 se = dup(STDERR_FILENO);
-                fe = open(r.err_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                int flags = O_WRONLY | O_CREAT | (r.err_append ? O_APPEND : O_TRUNC);
+                fe = open(r.err_file.c_str(), flags, 0644);
                 dup2(fe, STDERR_FILENO);
             }
 
