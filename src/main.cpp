@@ -1,13 +1,32 @@
 #include <iostream>
 #include <string>
+#include <vector>
 #include <dirent.h>
 #include <cstring>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <termios.h> 
 
 char fullpath[512];
+
+// --- Terminal Raw Mode Handling ---
+struct termios orig_termios;
+
+void disableRawMode() {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+void enableRawMode() {
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disableRawMode);
+    struct termios raw = orig_termios;
+    // Disable ICANON (line buffering) and ECHO (automatic printing)
+    raw.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+// ----------------------------------
 
 struct Redirect {
     bool out_enabled = false;
@@ -198,14 +217,64 @@ bool execute_external(const std::string &exe, std::string args) {
     return true;
 }
 
+
+std::string read_input_with_autocomplete() {
+    std::string input;
+    char c;
+    std::vector<std::string> builtins = {"echo", "exit"};
+
+    while (read(STDIN_FILENO, &c, 1) == 1) {
+        if (c == '\n') {
+            std::cout << '\n';
+            break;
+        } else if (c == '\t') {
+            
+            int matches = 0;
+            std::string match;
+            
+            for (const auto &cmd : builtins) {
+                if (cmd.rfind(input, 0) == 0) { 
+                    matches++;
+                    match = cmd;
+                }
+            }
+            
+            if (matches == 1) {
+                std::string remaining = match.substr(input.length());
+                remaining += " ";
+                
+                std::cout << remaining;
+                input += remaining;
+            } else {
+                std::cout << '\a';
+            }
+        } else if (c == 127) { 
+            if (!input.empty()) {
+                input.pop_back();
+                std::cout << "\b \b";
+            }
+        } else {
+            std::cout << c;
+            input += c;
+        }
+    }
+    return input;
+}
+
 int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
+    
+    
+    enableRawMode();
 
     while (true) {
         std::cout << "$ ";
-        std::string input;
-        if (!std::getline(std::cin, input)) break;
+        
+       
+        std::string input = read_input_with_autocomplete();
+        
+        if (input.empty()) continue;
 
         auto parsed = parse_command(input);
         if (parsed.first == "exit") break;
@@ -289,4 +358,3 @@ int main() {
     }
     return 0;
 }
-
