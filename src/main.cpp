@@ -8,8 +8,8 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h> 
-#include <set>       
-#include <sstream>  
+#include <set>
+#include <sstream>
 
 char fullpath[512];
 
@@ -223,15 +223,12 @@ bool execute_external(const std::string &exe, std::string args) {
 std::string read_input_with_autocomplete() {
     std::string input;
     char c;
-    // Updated builtins list to match supported commands in main()
     std::vector<std::string> builtins = {"echo", "exit", "type", "pwd", "cd"};
+    int tab_count = 0; 
 
     while (read(STDIN_FILENO, &c, 1) == 1) {
-        if (c == '\n') {
-            std::cout << '\n';
-            break;
-        } else if (c == '\t') {
-            
+        if (c == '\t') {
+            tab_count++;
             
             std::set<std::string> matches;
             
@@ -242,7 +239,7 @@ std::string read_input_with_autocomplete() {
                 }
             }
             
-           
+            
             char* path_env = getenv("PATH");
             if (path_env != nullptr) {
                 std::stringstream ss(path_env);
@@ -250,16 +247,14 @@ std::string read_input_with_autocomplete() {
                 
                 while (std::getline(ss, path_dir, ':')) {
                     DIR *dir = opendir(path_dir.c_str());
-                    if (!dir) continue;
+                    if (!dir) continue; 
 
                     struct dirent *entry;
                     while ((entry = readdir(dir)) != nullptr) {
                         std::string filename = entry->d_name;
                         
-                       
                         if (filename.rfind(input, 0) == 0) {
                             std::string full_path = path_dir + "/" + filename;
-                            
                             if (access(full_path.c_str(), X_OK) == 0) {
                                 matches.insert(filename);
                             }
@@ -269,24 +264,55 @@ std::string read_input_with_autocomplete() {
                 }
             }
 
-            if (matches.size() == 1) {
+            if (matches.empty()) {
+                std::cout << '\a';
+            } else if (matches.size() == 1) {
+                
                 std::string match = *matches.begin();
                 std::string remaining = match.substr(input.length());
                 remaining += " ";
-                
                 std::cout << remaining;
                 input += remaining;
+                tab_count = 0; 
             } else {
-                std::cout << '\a';
-            }
-        } else if (c == 127) { 
-            if (!input.empty()) {
-                input.pop_back();
-                std::cout << "\b \b";
+               
+                if (tab_count == 1) {
+                    std::cout << '\a'; 
+                } else {
+                    
+                    std::cout << '\n';
+                    bool first = true;
+                    for (const auto& match : matches) {
+                        if (!first) std::cout << "  ";
+                        std::cout << match;
+                        first = false;
+                    }
+                    std::cout << '\n';
+                    
+                    
+                    std::cout << "$ " << input;
+                    std::cout << std::flush;
+                    
+                    
+                    tab_count = 0;
+                }
             }
         } else {
-            std::cout << c;
-            input += c;
+            
+            tab_count = 0;
+
+            if (c == '\n') {
+                std::cout << '\n';
+                break;
+            } else if (c == 127) { 
+                if (!input.empty()) {
+                    input.pop_back();
+                    std::cout << "\b \b";
+                }
+            } else {
+                std::cout << c;
+                input += c;
+            }
         }
     }
     return input;
@@ -296,13 +322,11 @@ int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
     
-    
     enableRawMode();
 
     while (true) {
         std::cout << "$ ";
         
-       
         std::string input = read_input_with_autocomplete();
         
         if (input.empty()) continue;
