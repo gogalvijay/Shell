@@ -8,6 +8,8 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h> 
+#include <set>       
+#include <sstream>  
 
 char fullpath[512];
 
@@ -221,7 +223,8 @@ bool execute_external(const std::string &exe, std::string args) {
 std::string read_input_with_autocomplete() {
     std::string input;
     char c;
-    std::vector<std::string> builtins = {"echo", "exit"};
+    // Updated builtins list to match supported commands in main()
+    std::vector<std::string> builtins = {"echo", "exit", "type", "pwd", "cd"};
 
     while (read(STDIN_FILENO, &c, 1) == 1) {
         if (c == '\n') {
@@ -229,17 +232,45 @@ std::string read_input_with_autocomplete() {
             break;
         } else if (c == '\t') {
             
-            int matches = 0;
-            std::string match;
+            
+            std::set<std::string> matches;
+            
             
             for (const auto &cmd : builtins) {
                 if (cmd.rfind(input, 0) == 0) { 
-                    matches++;
-                    match = cmd;
+                    matches.insert(cmd);
                 }
             }
             
-            if (matches == 1) {
+           
+            char* path_env = getenv("PATH");
+            if (path_env != nullptr) {
+                std::stringstream ss(path_env);
+                std::string path_dir;
+                
+                while (std::getline(ss, path_dir, ':')) {
+                    DIR *dir = opendir(path_dir.c_str());
+                    if (!dir) continue;
+
+                    struct dirent *entry;
+                    while ((entry = readdir(dir)) != nullptr) {
+                        std::string filename = entry->d_name;
+                        
+                       
+                        if (filename.rfind(input, 0) == 0) {
+                            std::string full_path = path_dir + "/" + filename;
+                            
+                            if (access(full_path.c_str(), X_OK) == 0) {
+                                matches.insert(filename);
+                            }
+                        }
+                    }
+                    closedir(dir);
+                }
+            }
+
+            if (matches.size() == 1) {
+                std::string match = *matches.begin();
                 std::string remaining = match.substr(input.length());
                 remaining += " ";
                 
