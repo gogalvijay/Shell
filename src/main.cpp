@@ -10,6 +10,7 @@
 #include <termios.h> 
 #include <set>
 #include <sstream>
+#include <algorithm>
 
 char fullpath[512];
 
@@ -24,11 +25,27 @@ void enableRawMode() {
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disableRawMode);
     struct termios raw = orig_termios;
-    // Disable ICANON (line buffering) and ECHO (automatic printing)
     raw.c_lflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
+
 // ----------------------------------
+
+std::string findLCP(const std::set<std::string>& matches) {
+    if (matches.empty()) return "";
+    std::string prefix = *matches.begin();
+    for (const auto& s : matches) {
+        size_t j = 0;
+        while (j < prefix.size() && j < s.size() && prefix[j] == s[j]) {
+            j++;
+        }
+        prefix = prefix.substr(0, j);
+        if (prefix.empty()) break;
+    }
+    return prefix;
+}
+
+
 
 struct Redirect {
     bool out_enabled = false;
@@ -42,41 +59,26 @@ struct Redirect {
 Redirect parse_redirect(std::string &args) {
     Redirect r;
     size_t pos;
-
     if ((pos = args.find("2>>")) != std::string::npos) {
-        r.err_enabled = true;
-        r.err_append = true;
-        size_t start = pos + 3;
-        while (start < args.size() && args[start] == ' ') start++;
-        r.err_file = args.substr(start);
-        args = args.substr(0, pos);
+        r.err_enabled = true; r.err_append = true;
+        size_t start = pos + 3; while (start < args.size() && args[start] == ' ') start++;
+        r.err_file = args.substr(start); args = args.substr(0, pos);
     } else if ((pos = args.find("2>")) != std::string::npos) {
         r.err_enabled = true;
-        size_t start = pos + 2;
-        while (start < args.size() && args[start] == ' ') start++;
-        r.err_file = args.substr(start);
-        args = args.substr(0, pos);
+        size_t start = pos + 2; while (start < args.size() && args[start] == ' ') start++;
+        r.err_file = args.substr(start); args = args.substr(0, pos);
     }
-
-    if ((pos = args.find("1>>")) != std::string::npos ||
-        (pos = args.find(">>")) != std::string::npos) {
-        r.out_enabled = true;
-        r.out_append = true;
+    if ((pos = args.find("1>>")) != std::string::npos || (pos = args.find(">>")) != std::string::npos) {
+        r.out_enabled = true; r.out_append = true;
         size_t skip = (args[pos] == '1') ? 3 : 2;
-        size_t start = pos + skip;
-        while (start < args.size() && args[start] == ' ') start++;
-        r.out_file = args.substr(start);
-        args = args.substr(0, pos);
-    } else if ((pos = args.find("1>")) != std::string::npos ||
-               (pos = args.find(">")) != std::string::npos) {
+        size_t start = pos + skip; while (start < args.size() && args[start] == ' ') start++;
+        r.out_file = args.substr(start); args = args.substr(0, pos);
+    } else if ((pos = args.find("1>")) != std::string::npos || (pos = args.find(">")) != std::string::npos) {
         r.out_enabled = true;
         size_t skip = (args[pos] == '1') ? 2 : 1;
-        size_t start = pos + skip;
-        while (start < args.size() && args[start] == ' ') start++;
-        r.out_file = args.substr(start);
-        args = args.substr(0, pos);
+        size_t start = pos + skip; while (start < args.size() && args[start] == ' ') start++;
+        r.out_file = args.substr(start); args = args.substr(0, pos);
     }
-
     return r;
 }
 
@@ -84,18 +86,14 @@ std::pair<std::string, std::string> parse_command(const std::string &input) {
     std::string cmd, rest;
     size_t i = 0;
     while (i < input.size() && input[i] == ' ') i++;
-
     bool single = false, dbl = false;
-
     while (i < input.size()) {
         char c = input[i];
         if (c == ' ' && !single && !dbl) break;
         if (c == '\'' && !dbl) { single = !single; i++; continue; }
         if (c == '"' && !single) { dbl = !dbl; i++; continue; }
-        cmd += c;
-        i++;
+        cmd += c; i++;
     }
-
     if (i < input.size() && input[i] == ' ') i++;
     if (i < input.size()) rest = input.substr(i);
     return {cmd, rest};
@@ -104,42 +102,30 @@ std::pair<std::string, std::string> parse_command(const std::string &input) {
 bool check_file_present(const char *path, const std::string &exe) {
     DIR *dir = opendir(path);
     if (!dir) return false;
-
     struct dirent *entry;
     struct stat sb;
-
     while ((entry = readdir(dir)) != nullptr) {
         if (strcmp(entry->d_name, exe.c_str()) == 0) {
             snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
-            if (stat(fullpath, &sb) == 0 &&
-                S_ISREG(sb.st_mode) &&
-                access(fullpath, X_OK) == 0) {
-                closedir(dir);
-                return true;
+            if (stat(fullpath, &sb) == 0 && S_ISREG(sb.st_mode) && access(fullpath, X_OK) == 0) {
+                closedir(dir); return true;
             }
         }
     }
-    closedir(dir);
-    return false;
+    closedir(dir); return false;
 }
 
 bool find_in_path(const std::string &exe, char *out) {
     const char *path = getenv("PATH");
+    if (!path) return false;
     char p[256];
     int j = 0;
-
     for (int i = 0;; i++) {
         if (path[i] == ':' || path[i] == '\0') {
-            p[j] = '\0';
-            j = 0;
-            if (check_file_present(p, exe)) {
-                strcpy(out, fullpath);
-                return true;
-            }
+            p[j] = '\0'; j = 0;
+            if (check_file_present(p, exe)) { strcpy(out, fullpath); return true; }
             if (path[i] == '\0') break;
-        } else {
-            p[j++] = path[i];
-        }
+        } else { p[j++] = path[i]; }
     }
     return false;
 }
@@ -147,43 +133,29 @@ bool find_in_path(const std::string &exe, char *out) {
 void build_argv(const std::string &cmd, const std::string &args, char *argv[]) {
     int idx = 0;
     argv[idx++] = strdup(cmd.c_str());
-
     std::string token;
     bool single = false, dbl = false;
-
     for (size_t i = 0; i < args.size(); i++) {
         char c = args[i];
-
         if (c == '\\') {
             if (single) token += c;
             else if (dbl) {
                 if (i + 1 < args.size()) {
                     char n = args[i + 1];
-                    if (n == '"' || n == '\\' || n == '$' || n == '\n') {
-                        token += n;
-                        i++;
-                    } else token += c;
+                    if (n == '"' || n == '\\' || n == '$' || n == '\n') { token += n; i++; }
+                    else token += c;
                 }
-            } else {
-                if (i + 1 < args.size()) token += args[++i];
-            }
+            } else { if (i + 1 < args.size()) token += args[++i]; }
             continue;
         }
-
         if (c == '\'' && !dbl) { single = !single; continue; }
         if (c == '"' && !single) { dbl = !dbl; continue; }
-
         if (c == ' ' && !single && !dbl) {
-            if (!token.empty()) {
-                argv[idx++] = strdup(token.c_str());
-                token.clear();
-            }
+            if (!token.empty()) { argv[idx++] = strdup(token.c_str()); token.clear(); }
             continue;
         }
-
         token += c;
     }
-
     if (!token.empty()) argv[idx++] = strdup(token.c_str());
     argv[idx] = nullptr;
 }
@@ -191,73 +163,55 @@ void build_argv(const std::string &cmd, const std::string &args, char *argv[]) {
 bool execute_external(const std::string &exe, std::string args) {
     char pathbuf[512];
     if (!find_in_path(exe, pathbuf)) return false;
-
     Redirect r = parse_redirect(args);
     pid_t pid = fork();
-
     if (pid == 0) {
         if (r.out_enabled) {
             int flags = O_WRONLY | O_CREAT | (r.out_append ? O_APPEND : O_TRUNC);
             int fd = open(r.out_file.c_str(), flags, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
+            dup2(fd, STDOUT_FILENO); close(fd);
         }
         if (r.err_enabled) {
             int flags = O_WRONLY | O_CREAT | (r.err_append ? O_APPEND : O_TRUNC);
             int fd = open(r.err_file.c_str(), flags, 0644);
-            dup2(fd, STDERR_FILENO);
-            close(fd);
+            dup2(fd, STDERR_FILENO); close(fd);
         }
         char *argv[64];
         build_argv(exe, args, argv);
         execve(pathbuf, argv, nullptr);
-        perror("execve");
         _exit(1);
-    } else {
-        waitpid(pid, nullptr, 0);
-    }
+    } else { waitpid(pid, nullptr, 0); }
     return true;
 }
-
 
 std::string read_input_with_autocomplete() {
     std::string input;
     char c;
     std::vector<std::string> builtins = {"echo", "exit", "type", "pwd", "cd"};
-    int tab_count = 0; 
+    int tab_count = 0;
 
     while (read(STDIN_FILENO, &c, 1) == 1) {
         if (c == '\t') {
             tab_count++;
-            
             std::set<std::string> matches;
             
-            
             for (const auto &cmd : builtins) {
-                if (cmd.rfind(input, 0) == 0) { 
-                    matches.insert(cmd);
-                }
+                if (cmd.rfind(input, 0) == 0) matches.insert(cmd);
             }
             
-            
             char* path_env = getenv("PATH");
-            if (path_env != nullptr) {
+            if (path_env) {
                 std::stringstream ss(path_env);
                 std::string path_dir;
-                
                 while (std::getline(ss, path_dir, ':')) {
                     DIR *dir = opendir(path_dir.c_str());
-                    if (!dir) continue; 
-
+                    if (!dir) continue;
                     struct dirent *entry;
                     while ((entry = readdir(dir)) != nullptr) {
-                        std::string filename = entry->d_name;
-                        
-                        if (filename.rfind(input, 0) == 0) {
-                            std::string full_path = path_dir + "/" + filename;
-                            if (access(full_path.c_str(), X_OK) == 0) {
-                                matches.insert(filename);
-                            }
+                        std::string name = entry->d_name;
+                        if (name != "." && name != ".." && name.rfind(input, 0) == 0) {
+                            std::string full = path_dir + "/" + name;
+                            if (access(full.c_str(), X_OK) == 0) matches.insert(name);
                         }
                     }
                     closedir(dir);
@@ -266,53 +220,47 @@ std::string read_input_with_autocomplete() {
 
             if (matches.empty()) {
                 std::cout << '\a';
-            } else if (matches.size() == 1) {
-                
-                std::string match = *matches.begin();
-                std::string remaining = match.substr(input.length());
-                remaining += " ";
-                std::cout << remaining;
-                input += remaining;
-                tab_count = 0; 
+                tab_count = 0;
             } else {
+                std::string lcp = findLCP(matches);
+                
                
-                if (tab_count == 1) {
-                    std::cout << '\a'; 
-                } else {
+                if (lcp.length() > input.length()) {
+                    std::string diff = lcp.substr(input.length());
+                    std::cout << diff;
+                    input = lcp;
                     
-                    std::cout << '\n';
-                    bool first = true;
-                    for (const auto& match : matches) {
-                        if (!first) std::cout << "  ";
-                        std::cout << match;
-                        first = false;
+                    
+                    if (matches.size() == 1) {
+                        std::cout << " ";
+                        input += " ";
                     }
-                    std::cout << '\n';
-                    
-                    
-                    std::cout << "$ " << input;
-                    std::cout << std::flush;
-                    
-                    
                     tab_count = 0;
+                } 
+               
+                else {
+                    if (tab_count == 1) {
+                        std::cout << '\a';
+                    } else {
+                        
+                        std::cout << "\n";
+                        bool first = true;
+                        for (const auto& m : matches) {
+                            if (!first) std::cout << "  ";
+                            std::cout << m;
+                            first = false;
+                        }
+                        std::cout << "\n$ " << input << std::flush;
+                        tab_count = 0;
+                    }
                 }
             }
         } else {
-            
             tab_count = 0;
-
-            if (c == '\n') {
-                std::cout << '\n';
-                break;
-            } else if (c == 127) { 
-                if (!input.empty()) {
-                    input.pop_back();
-                    std::cout << "\b \b";
-                }
-            } else {
-                std::cout << c;
-                input += c;
-            }
+            if (c == '\n') { std::cout << '\n'; break; }
+            else if (c == 127) { 
+                if (!input.empty()) { input.pop_back(); std::cout << "\b \b"; }
+            } else { std::cout << c; input += c; }
         }
     }
     return input;
@@ -321,95 +269,60 @@ std::string read_input_with_autocomplete() {
 int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
-    
     enableRawMode();
-
     while (true) {
         std::cout << "$ ";
-        
         std::string input = read_input_with_autocomplete();
-        
         if (input.empty()) continue;
-
         auto parsed = parse_command(input);
         if (parsed.first == "exit") break;
-
         if (parsed.first == "echo") {
             Redirect r = parse_redirect(parsed.second);
-
             int so = -1, se = -1, fo = -1, fe = -1;
-
             if (r.out_enabled) {
                 so = dup(STDOUT_FILENO);
                 int flags = O_WRONLY | O_CREAT | (r.out_append ? O_APPEND : O_TRUNC);
-                fo = open(r.out_file.c_str(), flags, 0644);
-                dup2(fo, STDOUT_FILENO);
+                fo = open(r.out_file.c_str(), flags, 0644); dup2(fo, STDOUT_FILENO);
             }
             if (r.err_enabled) {
                 se = dup(STDERR_FILENO);
                 int flags = O_WRONLY | O_CREAT | (r.err_append ? O_APPEND : O_TRUNC);
-                fe = open(r.err_file.c_str(), flags, 0644);
-                dup2(fe, STDERR_FILENO);
+                fe = open(r.err_file.c_str(), flags, 0644); dup2(fe, STDERR_FILENO);
             }
-
             bool single = false, dbl = false, last = false;
-
             for (size_t i = 0; i < parsed.second.size(); i++) {
                 char c = parsed.second[i];
                 if (c == '\'' && !dbl) { single = !single; continue; }
                 if (c == '"' && !single) { dbl = !dbl; continue; }
-                if (c == '\\' && !single && i + 1 < parsed.second.size()) {
-                    std::cout << parsed.second[++i];
-                    last = false;
-                    continue;
-                }
-                if (c == ' ' && !single && !dbl) {
-                    if (!last) std::cout << ' ';
-                    last = true;
-                    continue;
-                }
-                last = false;
-                std::cout << c;
+                if (c == '\\' && !single && i + 1 < parsed.second.size()) { std::cout << parsed.second[++i]; last = false; continue; }
+                if (c == ' ' && !single && !dbl) { if (!last) std::cout << ' '; last = true; continue; }
+                last = false; std::cout << c;
             }
-
             std::cout << '\n';
-
             if (r.out_enabled) { dup2(so, STDOUT_FILENO); close(so); close(fo); }
             if (r.err_enabled) { dup2(se, STDERR_FILENO); close(se); close(fe); }
             continue;
         }
-
         if (parsed.first == "pwd") {
-            char buf[512];
-            getcwd(buf, sizeof(buf));
-            std::cout << buf << '\n';
-            continue;
+            char buf[512]; getcwd(buf, sizeof(buf));
+            std::cout << buf << '\n'; continue;
         }
-
         if (parsed.first == "cd") {
             const char *p = parsed.second == "~" ? getenv("HOME") : parsed.second.c_str();
-            if (chdir(p) == -1)
-                std::cout << "cd: " << parsed.second << ": No such file or directory\n";
+            if (chdir(p) == -1) std::cout << "cd: " << parsed.second << ": No such file or directory\n";
             continue;
         }
-
         if (parsed.first == "type") {
-            if (parsed.second == "echo" || parsed.second == "exit" ||
-                parsed.second == "type" || parsed.second == "pwd" ||
-                parsed.second == "cd") {
+            if (parsed.second == "echo" || parsed.second == "exit" || parsed.second == "type" || parsed.second == "pwd" || parsed.second == "cd")
                 std::cout << parsed.second << " is a shell builtin\n";
-            } else {
+            else {
                 char p[512];
-                if (find_in_path(parsed.second, p))
-                    std::cout << parsed.second << " is " << p << '\n';
-                else
-                    std::cout << parsed.second << ": not found\n";
+                if (find_in_path(parsed.second, p)) std::cout << parsed.second << " is " << p << '\n';
+                else std::cout << parsed.second << ": not found\n";
             }
             continue;
         }
-
-        if (!execute_external(parsed.first, parsed.second))
-            std::cout << parsed.first << ": command not found\n";
+        if (!execute_external(parsed.first, parsed.second)) std::cout << parsed.first << ": command not found\n";
     }
     return 0;
 }
